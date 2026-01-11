@@ -5,6 +5,7 @@
 // Version: 2025-01-11 - Initial SubNP integration for high-quality images
 // Version: 2025-01-11 v2 - Try multiple API endpoints for compatibility
 // Version: 2025-01-11 v3 - Prioritize subnp.com endpoints
+// Version: 2025-01-11 v4 - Use official base URL from SubNP docs (t2i.mcpcore.xyz)
 
 export default {
   async fetch(request, env, ctx) {
@@ -81,12 +82,12 @@ async function generateImage(request) {
     }
 
     // SubNP API - Free tier
-    // Try subnp.com endpoints first (may work without API key for some endpoints)
+    // Base URL: https://t2i.mcpcore.xyz (per official docs)
+    // Endpoint: /api/free/generate
+    // Also try subnp.com as it may proxy to t2i.mcpcore.xyz
     const apiUrls = [
-      'https://subnp.com/api/free/generate',
-      'https://t2i.mcpcore.xyz/api/free/generate',
-      'https://subnp.com/generate',
-      'https://t2i.mcpcore.xyz/generate'
+      'https://t2i.mcpcore.xyz/api/free/generate', // Official base URL from docs
+      'https://subnp.com/api/free/generate', // May work as proxy/alias
     ]
     
     let apiResponse = null
