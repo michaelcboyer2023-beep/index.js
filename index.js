@@ -41,8 +41,8 @@ async function handleRequest(request) {
     }
 
     // Forward request to SubNP API
-    // Note: If this returns 404, the API endpoint may have changed
-    const apiResponse = await fetch('https://t2i.mcpcore.xyz/api/free/generate', {
+    // Using alternative endpoint: subnp.com instead of t2i.mcpcore.xyz
+    const apiResponse = await fetch('https://subnp.com/api/free/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -136,4 +136,3 @@ async function handleRequest(request) {
     })
   }
 }
- 
