@@ -4,6 +4,7 @@
 // ES Modules format (required for Cloudflare Workers)
 // Version: 2025-01-11 - Initial SubNP integration for high-quality images
 // Version: 2025-01-11 v2 - Try multiple API endpoints for compatibility
+// Version: 2025-01-11 v3 - Prioritize subnp.com endpoints
 
 export default {
   async fetch(request, env, ctx) {
@@ -80,12 +81,12 @@ async function generateImage(request) {
     }
 
     // SubNP API - Free tier
-    // Try multiple possible endpoints
+    // Try subnp.com endpoints first (may work without API key for some endpoints)
     const apiUrls = [
-      'https://t2i.mcpcore.xyz/api/free/generate',
       'https://subnp.com/api/free/generate',
-      'https://t2i.mcpcore.xyz/generate',
-      'https://subnp.com/generate'
+      'https://t2i.mcpcore.xyz/api/free/generate',
+      'https://subnp.com/generate',
+      'https://t2i.mcpcore.xyz/generate'
     ]
     
     let apiResponse = null
@@ -118,10 +119,17 @@ async function generateImage(request) {
     
     if (!apiResponse || !apiResponse.ok) {
       const errorText = apiResponse ? await apiResponse.text() : (lastError || 'All endpoints failed')
+      // Try to get more info about which endpoint failed
+      const errorDetails = {
+        status: apiResponse?.status || 'Connection failed',
+        errorText: errorText,
+        triedEndpoints: apiUrls,
+        suggestion: 'SubNP may require an API key. Visit https://www.subnp.com/free-api to get one.'
+      }
       return new Response(JSON.stringify({ 
-        error: `SubNP API error: ${apiResponse?.status || 'Connection failed'}`,
+        error: `SubNP API error: ${errorDetails.status}`,
         details: errorText,
-        triedEndpoints: apiUrls
+        debug: errorDetails
       }), {
         status: 200,
         headers: {
