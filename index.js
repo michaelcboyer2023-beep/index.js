@@ -199,3 +199,4 @@ async function generateImage(request) {
     })
   }
 }
+
