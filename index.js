@@ -4,7 +4,6 @@
 // ES Modules format (required for Cloudflare Workers)
 // Version: 2025-01-11 - Fixed sampler_name to k_dpmpp_2m, added FLUX models
 // Version: 2025-01-11 v2 - Reduced to 768x768 and 30 steps for free tier (no kudos required)
-// Version: 2025-01-11 v3 - Prioritize free tier models (SDXL, SD 2.1, SD) to avoid kudos requirement
 
 export default {
   async fetch(request, env, ctx) {
