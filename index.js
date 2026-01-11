@@ -176,7 +176,8 @@ async function generateImage(request) {
     return new Response(JSON.stringify({ 
       imageUrl: imageUrl,
       provider: 'subnp',
-      status: 'completed'
+      status: 'completed',
+      version: '2025-01-11-subnp' // Version identifier to verify deployment
     }), {
       headers: {
         'Content-Type': 'application/json',
@@ -198,4 +199,3 @@ async function generateImage(request) {
     })
   }
 }
-
