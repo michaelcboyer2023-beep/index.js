@@ -249,9 +249,57 @@ async function checkStatus(requestId) {
     const resultData = await resultResponse.json()
     
     if (resultData.generations && resultData.generations.length > 0 && resultData.generations[0].img) {
-      // Convert base64 image to data URL
-      const base64Image = resultData.generations[0].img
-      const dataUrl = `data:image/png;base64,${base64Image}`
+      const imageData = resultData.generations[0].img
+      
+      // Check if it's a URL or base64 string
+      let dataUrl
+      if (imageData.startsWith('http://') || imageData.startsWith('https://')) {
+        // It's a URL - fetch it and convert to base64
+        try {
+          const imageResponse = await fetch(imageData)
+          if (!imageResponse.ok) {
+            return new Response(JSON.stringify({ 
+              error: 'Failed to fetch generated image',
+              details: `HTTP ${imageResponse.status}`,
+              status: 'error'
+            }), {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+              },
+            })
+          }
+          
+          const contentType = imageResponse.headers.get('content-type') || 'image/png'
+          const imageBuffer = await imageResponse.arrayBuffer()
+          const bytes = new Uint8Array(imageBuffer)
+          let binary = ''
+          const chunkSize = 8192 // Process in chunks to avoid stack overflow
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.slice(i, i + chunkSize)
+            const chunkArray = Array.from(chunk)
+            binary += String.fromCharCode.apply(null, chunkArray)
+          }
+          const base64 = btoa(binary)
+          dataUrl = `data:${contentType};base64,${base64}`
+        } catch (fetchError) {
+          return new Response(JSON.stringify({ 
+            error: 'Failed to fetch and convert image',
+            details: fetchError.message,
+            status: 'error'
+          }), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          })
+        }
+      } else {
+        // It's already base64 - use it directly
+        dataUrl = `data:image/png;base64,${imageData}`
+      }
       
       return new Response(JSON.stringify({ 
         imageUrl: dataUrl,
