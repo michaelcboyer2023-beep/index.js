@@ -98,12 +98,24 @@ async function submitRequest(request) {
       body: JSON.stringify({
         prompt: prompt.trim(),
         params: {
-          width: 512,
-          height: 512,
-          steps: 20,
+          width: 1024, // Maximum quality resolution
+          height: 1024,
+          steps: 40, // High quality steps (40-50 range for best results)
           n: 1,
+          cfg_scale: 8.0, // Optimal CFG for quality (7-8 range)
+          sampler_name: 'dpmpp_2m_karras', // Best quality sampler
         },
-        models: ['stable_diffusion'],
+        models: [
+          'flux1-1-pro-ultra',   // FLUX.1.1 Pro Ultra (4MP, highest quality)
+          'flux2-pro',            // FLUX.2 Pro (state-of-the-art)
+          'flux1-1-pro',          // FLUX.1.1 Pro (high quality)
+          'flux.1-pro',           // FLUX.1 Pro (try alternate naming)
+          'flux.1-dev',           // FLUX.1 Dev (high quality)
+          'stable_diffusion_xl',  // SDXL (high quality)
+          'flux.1-schnell',       // FLUX.1 Schnell (fast fallback)
+          'stable_diffusion_2.1', // SD 2.1 fallback
+          'stable_diffusion'      // Final fallback
+        ], // Try best models first, falls back if unavailable
         nsfw: false,
         trusted_workers: false,
         censor_nsfw: false,
