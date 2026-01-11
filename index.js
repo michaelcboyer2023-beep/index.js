@@ -1,5 +1,5 @@
-// Cloudflare Worker - CORS Proxy for Pollinations.ai Image Generation
-// Uses Pollinations.ai direct image URLs (no API key needed)
+// Cloudflare Worker - Proxy Pollinations.ai Images (Bypasses 403)
+// Fetches image server-side and returns it as base64 data URL
 // ES Modules format (required for Cloudflare Workers)
 
 export default {
@@ -71,18 +71,75 @@ async function handleRequest(request) {
       })
     }
 
-    // Pollinations.ai generates images via direct image URL
-    // Add cache-busting to prevent browser from showing cached "moved" HTML page
+    // Pollinations.ai endpoint - fetch image server-side to bypass 403
     const encodedPrompt = encodeURIComponent(prompt.trim())
     const timestamp = Date.now()
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&nologo=true&seed=${timestamp}&_cb=${timestamp}`
-
-    return new Response(JSON.stringify({ imageUrl }), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
-    })
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&nologo=true&seed=${timestamp}`
+    
+    try {
+      // Fetch the image through the worker (server-side, bypasses browser 403)
+      const imageResponse = await fetch(imageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'image/jpeg,image/*,*/*'
+        }
+      })
+      
+      if (!imageResponse.ok) {
+        return new Response(JSON.stringify({ 
+          error: `Pollinations.ai returned ${imageResponse.status}`,
+          details: 'The image generation service may be unavailable'
+        }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        })
+      }
+      
+      const contentType = imageResponse.headers.get('content-type') || 'image/jpeg'
+      
+      if (!contentType.startsWith('image/')) {
+        return new Response(JSON.stringify({ 
+          error: 'Pollinations.ai returned non-image content',
+          details: `Content-Type: ${contentType}`
+        }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        })
+      }
+      
+      // Convert image to base64 data URL
+      const imageBuffer = await imageResponse.arrayBuffer()
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)))
+      const dataUrl = `data:${contentType};base64,${base64}`
+      
+      return new Response(JSON.stringify({ 
+        imageUrl: dataUrl,
+        provider: 'pollinations'
+      }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+      
+    } catch (fetchError) {
+      return new Response(JSON.stringify({ 
+        error: 'Failed to fetch image from Pollinations.ai',
+        details: fetchError.message
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
 
   } catch (error) {
     return new Response(JSON.stringify({ 
