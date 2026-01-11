@@ -4,6 +4,8 @@
 // ES Modules format (required for Cloudflare Workers)
 // Version: 2025-01-11 - Fixed sampler_name to k_dpmpp_2m, added FLUX models
 // Version: 2025-01-11 v2 - Reduced to 768x768 and 30 steps for free tier (no kudos required)
+// Version: 2025-01-11 v3 - Prioritize free tier models (SDXL, SD 2.1, SD) to avoid kudos requirement
+// Version: 2025-01-11 v4 - Reduced to 512x512 and 25 steps to guarantee free tier (under 793x793 limit)
 
 export default {
   async fetch(request, env, ctx) {
@@ -100,9 +102,9 @@ async function submitRequest(request) {
       body: JSON.stringify({
         prompt: prompt.trim(),
         params: {
-          width: 768, // Free tier limit: under 926x926 (768x768 works without kudos)
-          height: 768,
-          steps: 30, // Free tier limit: under 50 steps (30 works without kudos)
+          width: 512, // Free tier: well under 793x793 limit (512x512 guaranteed free)
+          height: 512,
+          steps: 25, // Free tier: well under 50 steps limit (25 guaranteed free)
           n: 1,
           cfg_scale: 8.0, // Optimal CFG for quality (7-8 range)
           sampler_name: 'k_dpmpp_2m', // Best quality sampler (valid name: k_dpmpp_2m not dpmpp_2m_karras)
