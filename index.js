@@ -198,3 +198,4 @@ async function generateImage(request) {
     })
   }
 }
+
