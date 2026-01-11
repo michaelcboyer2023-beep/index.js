@@ -1,12 +1,8 @@
-// Cloudflare Worker - AI Horde (Stable Horde) Text-to-Image Generation
-// Free, anonymous access with API key "0000000000"
-// Hybrid approach: POST submits request, GET checks status (avoids timeout)
+// Cloudflare Worker - SubNP AI Image Generation
+// Free, high-quality AI image generation via SubNP API
+// Uses SSE (Server-Sent Events) streaming
 // ES Modules format (required for Cloudflare Workers)
-// Version: 2025-01-11 - Fixed sampler_name to k_dpmpp_2m, added FLUX models
-// Version: 2025-01-11 v2 - Reduced to 768x768 and 30 steps for free tier (no kudos required)
-// Version: 2025-01-11 v3 - Prioritize free tier models (SDXL, SD 2.1, SD) to avoid kudos requirement
-// Version: 2025-01-11 v4 - Reduced to 512x512 and 25 steps to guarantee free tier (under 793x793 limit)
-// Version: 2025-01-11 v5 - Reduced to 20 steps (under 576x576 limit, 20 steps for extra safety)
+// Version: 2025-01-11 - Initial SubNP integration for high-quality images
 
 export default {
   async fetch(request, env, ctx) {
@@ -31,24 +27,16 @@ async function handleRequest(request) {
       status: 204,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Max-Age': '86400',
       },
     })
   }
 
-  const url = new URL(request.url)
-  const requestId = url.searchParams.get('requestId')
-  
-  // GET request: Check status of existing request
-  if (request.method === 'GET' && requestId) {
-    return await checkStatus(requestId)
-  }
-  
-  // POST request: Submit new generation request
+  // POST request: Generate image via SubNP
   if (request.method === 'POST') {
-    return await submitRequest(request)
+    return await generateImage(request)
   }
 
   return new Response(JSON.stringify({ error: 'Method not allowed' }), { 
@@ -60,7 +48,7 @@ async function handleRequest(request) {
   })
 }
 
-async function submitRequest(request) {
+async function generateImage(request) {
   try {
     let body
     try {
@@ -78,7 +66,7 @@ async function submitRequest(request) {
       })
     }
 
-    const { prompt } = body
+    const { prompt, model = 'turbo' } = body
 
     if (!prompt) {
       return new Response(JSON.stringify({ error: 'Prompt is required' }), {
@@ -90,47 +78,22 @@ async function submitRequest(request) {
       })
     }
 
-    // AI Horde API - Anonymous access with API key "0000000000"
-    const apiKey = "0000000000" // Anonymous API key
+    // SubNP API - Free tier
+    const apiUrl = 'https://t2i.mcpcore.xyz/api/free/generate'
     
-    // Submit generation request
-    const submitResponse = await fetch('https://stablehorde.net/api/v2/generate/async', {
+    // Forward request to SubNP API
+    const apiResponse = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': apiKey,
       },
-      body: JSON.stringify({
-        prompt: prompt.trim(),
-        params: {
-          width: 512, // Free tier: under 576x576 limit (512x512 should work)
-          height: 512,
-          steps: 20, // Free tier: well under 50 steps limit (20 guaranteed free)
-          n: 1,
-          cfg_scale: 8.0, // Optimal CFG for quality (7-8 range)
-          sampler_name: 'k_dpmpp_2m', // Best quality sampler (valid name: k_dpmpp_2m not dpmpp_2m_karras)
-        },
-        models: [
-          'stable_diffusion_xl',  // SDXL (high quality, free tier)
-          'stable_diffusion_2.1', // SD 2.1 (free tier)
-          'stable_diffusion',     // SD base (free tier)
-          'flux.1-schnell',       // FLUX.1 Schnell (fast, may be free)
-          'flux.1-dev',           // FLUX.1 Dev (may require kudos)
-          'flux.1-pro',           // FLUX.1 Pro (may require kudos)
-          'flux1-1-pro',          // FLUX.1.1 Pro (may require kudos)
-          'flux2-pro',            // FLUX.2 Pro (may require kudos)
-          'flux1-1-pro-ultra'     // FLUX.1.1 Pro Ultra (may require kudos)
-        ], // Prioritize free tier models first, premium models as fallback
-        nsfw: false,
-        trusted_workers: false,
-        censor_nsfw: false,
-      })
+      body: JSON.stringify({ prompt: prompt.trim(), model })
     })
 
-    if (!submitResponse.ok) {
-      const errorText = await submitResponse.text()
+    if (!apiResponse.ok) {
+      const errorText = await apiResponse.text()
       return new Response(JSON.stringify({ 
-        error: `AI Horde submission failed: ${submitResponse.status}`,
+        error: `SubNP API error: ${apiResponse.status}`,
         details: errorText
       }), {
         status: 200,
@@ -141,197 +104,50 @@ async function submitRequest(request) {
       })
     }
 
-    const submitData = await submitResponse.json()
-    const requestId = submitData.id
+    // Handle SSE stream from SubNP
+    const reader = apiResponse.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let imageUrl = null
+    let errorMessage = null
+    let status = 'processing'
 
-    if (!requestId) {
-      return new Response(JSON.stringify({ 
-        error: 'No request ID returned from AI Horde',
-        details: JSON.stringify(submitData)
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
+    // Read the SSE stream
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
 
-    // Return request ID immediately - frontend will poll for status
-    return new Response(JSON.stringify({ 
-      requestId: requestId,
-      status: 'submitted',
-      provider: 'aihorde',
-      message: 'Request submitted. Polling for result...'
-    }), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
-    })
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || '' // Keep incomplete line in buffer
 
-  } catch (error) {
-    return new Response(JSON.stringify({ 
-      error: error.message || 'Unknown error occurred',
-      type: error.name || 'Error'
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
-    })
-  }
-}
-
-async function checkStatus(requestId) {
-  try {
-    const apiKey = "0000000000" // Anonymous API key
-    
-    // Check status
-    const statusResponse = await fetch(`https://stablehorde.net/api/v2/generate/check/${requestId}`, {
-      headers: {
-        'apikey': apiKey,
-      }
-    })
-
-    if (!statusResponse.ok) {
-      return new Response(JSON.stringify({ 
-        error: `Failed to check status: ${statusResponse.status}`,
-        status: 'error'
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-
-    const statusData = await statusResponse.json()
-    
-    // Check if request failed
-    if (statusData.faulted) {
-      return new Response(JSON.stringify({ 
-        error: 'Image generation failed on AI Horde',
-        details: statusData.faulted,
-        status: 'failed'
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-    
-    // If not done yet, return processing status
-    if (!statusData.done) {
-      const queuePosition = statusData.queue_position || 0
-      const waitTime = statusData.wait_time || 0
-      return new Response(JSON.stringify({ 
-        status: 'processing',
-        queuePosition: queuePosition,
-        waitTime: waitTime,
-        done: false
-      }), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-    
-    // Done! Get the generated image
-    const resultResponse = await fetch(`https://stablehorde.net/api/v2/generate/status/${requestId}`, {
-      headers: {
-        'apikey': apiKey,
-      }
-    })
-
-    if (!resultResponse.ok) {
-      return new Response(JSON.stringify({ 
-        error: 'Failed to get generation result',
-        details: `Status: ${resultResponse.status}`,
-        status: 'error'
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-
-    const resultData = await resultResponse.json()
-    
-    if (resultData.generations && resultData.generations.length > 0 && resultData.generations[0].img) {
-      const imageData = resultData.generations[0].img
-      
-      // Check if it's a URL or base64 string
-      let dataUrl
-      if (imageData.startsWith('http://') || imageData.startsWith('https://')) {
-        // It's a URL - fetch it and convert to base64
-        try {
-          const imageResponse = await fetch(imageData)
-          if (!imageResponse.ok) {
-            return new Response(JSON.stringify({ 
-              error: 'Failed to fetch generated image',
-              details: `HTTP ${imageResponse.status}`,
-              status: 'error'
-            }), {
-              status: 200,
-              headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-              },
-            })
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6)) // Remove 'data: ' prefix
+            
+            if (data.status === 'complete' && data.imageUrl) {
+              imageUrl = data.imageUrl
+              status = 'completed'
+            } else if (data.status === 'error') {
+              errorMessage = data.message || 'Unknown error from SubNP'
+              status = 'error'
+            } else if (data.status === 'processing') {
+              status = 'processing'
+              // Could forward progress updates if needed
+            }
+          } catch (e) {
+            // Skip invalid JSON lines
+            console.error('Failed to parse SSE data:', e, line)
           }
-          
-          const contentType = imageResponse.headers.get('content-type') || 'image/png'
-          const imageBuffer = await imageResponse.arrayBuffer()
-          const bytes = new Uint8Array(imageBuffer)
-          let binary = ''
-          const chunkSize = 8192 // Process in chunks to avoid stack overflow
-          for (let i = 0; i < bytes.length; i += chunkSize) {
-            const chunk = bytes.slice(i, i + chunkSize)
-            const chunkArray = Array.from(chunk)
-            binary += String.fromCharCode.apply(null, chunkArray)
-          }
-          const base64 = btoa(binary)
-          dataUrl = `data:${contentType};base64,${base64}`
-        } catch (fetchError) {
-          return new Response(JSON.stringify({ 
-            error: 'Failed to fetch and convert image',
-            details: fetchError.message,
-            status: 'error'
-          }), {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-            },
-          })
         }
-      } else {
-        // It's already base64 - use it directly
-        dataUrl = `data:image/png;base64,${imageData}`
       }
-      
+    }
+
+    // Check for errors
+    if (errorMessage) {
       return new Response(JSON.stringify({ 
-        imageUrl: dataUrl,
-        provider: 'aihorde',
-        status: 'completed'
-      }), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    } else {
-      return new Response(JSON.stringify({ 
-        error: 'No image in generation result',
-        details: JSON.stringify(resultData),
+        error: errorMessage,
         status: 'error'
       }), {
         status: 200,
@@ -341,6 +157,32 @@ async function checkStatus(requestId) {
         },
       })
     }
+
+    // Check if we got an image URL
+    if (!imageUrl) {
+      return new Response(JSON.stringify({ 
+        error: 'No image URL received from SubNP',
+        status: 'error'
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+
+    // Success - return image URL
+    return new Response(JSON.stringify({ 
+      imageUrl: imageUrl,
+      provider: 'subnp',
+      status: 'completed'
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    })
 
   } catch (error) {
     return new Response(JSON.stringify({ 
