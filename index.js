@@ -3,6 +3,7 @@
 // Uses SSE (Server-Sent Events) streaming
 // ES Modules format (required for Cloudflare Workers)
 // Version: 2025-01-11 - Initial SubNP integration for high-quality images
+// Version: 2025-01-11 v2 - Try multiple API endpoints for compatibility
 
 export default {
   async fetch(request, env, ctx) {
@@ -79,22 +80,48 @@ async function generateImage(request) {
     }
 
     // SubNP API - Free tier
-    const apiUrl = 'https://t2i.mcpcore.xyz/api/free/generate'
+    // Try multiple possible endpoints
+    const apiUrls = [
+      'https://t2i.mcpcore.xyz/api/free/generate',
+      'https://subnp.com/api/free/generate',
+      'https://t2i.mcpcore.xyz/generate',
+      'https://subnp.com/generate'
+    ]
     
-    // Forward request to SubNP API
-    const apiResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ prompt: prompt.trim(), model })
-    })
-
-    if (!apiResponse.ok) {
-      const errorText = await apiResponse.text()
+    let apiResponse = null
+    let lastError = null
+    
+    // Try each endpoint until one works
+    for (const apiUrl of apiUrls) {
+      try {
+        apiResponse = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ prompt: prompt.trim(), model })
+        })
+        
+        if (apiResponse.ok) {
+          break // Success, use this endpoint
+        } else if (apiResponse.status !== 404) {
+          // If it's not 404, this might be the right endpoint but with an error
+          break
+        }
+        // If 404, try next endpoint
+        lastError = `404 from ${apiUrl}`
+      } catch (fetchError) {
+        lastError = fetchError.message
+        continue // Try next endpoint
+      }
+    }
+    
+    if (!apiResponse || !apiResponse.ok) {
+      const errorText = apiResponse ? await apiResponse.text() : (lastError || 'All endpoints failed')
       return new Response(JSON.stringify({ 
-        error: `SubNP API error: ${apiResponse.status}`,
-        details: errorText
+        error: `SubNP API error: ${apiResponse?.status || 'Connection failed'}`,
+        details: errorText,
+        triedEndpoints: apiUrls
       }), {
         status: 200,
         headers: {
@@ -199,4 +226,3 @@ async function generateImage(request) {
     })
   }
 }
-
