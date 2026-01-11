@@ -1,5 +1,6 @@
-// Cloudflare Worker - Proxy Pollinations.ai Images (Bypasses 403)
-// Fetches image server-side and returns it as base64 data URL
+// Cloudflare Worker - AI Horde (Stable Horde) Text-to-Image Generation
+// Free, anonymous access with API key "0000000000"
+// Hybrid approach: POST submits request, GET checks status (avoids timeout)
 // ES Modules format (required for Cloudflare Workers)
 
 export default {
@@ -25,23 +26,36 @@ async function handleRequest(request) {
       status: 204,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Max-Age': '86400',
       },
     })
   }
 
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { 
-      status: 405,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      }
-    })
+  const url = new URL(request.url)
+  const requestId = url.searchParams.get('requestId')
+  
+  // GET request: Check status of existing request
+  if (request.method === 'GET' && requestId) {
+    return await checkStatus(requestId)
+  }
+  
+  // POST request: Submit new generation request
+  if (request.method === 'POST') {
+    return await submitRequest(request)
   }
 
+  return new Response(JSON.stringify({ error: 'Method not allowed' }), { 
+    status: 405,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    }
+  })
+}
+
+async function submitRequest(request) {
   try {
     let body
     try {
@@ -71,76 +85,189 @@ async function handleRequest(request) {
       })
     }
 
-    // Pollinations.ai endpoint - fetch image server-side to bypass 403
-    const encodedPrompt = encodeURIComponent(prompt.trim())
-    const timestamp = Date.now()
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&nologo=true&seed=${timestamp}`
+    // AI Horde API - Anonymous access with API key "0000000000"
+    const apiKey = "0000000000" // Anonymous API key
     
-    try {
-      // Fetch the image through the worker (server-side, bypasses browser 403)
-      const imageResponse = await fetch(imageUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-          'Accept': 'image/jpeg,image/*,*/*'
-        }
+    // Submit generation request
+    const submitResponse = await fetch('https://stablehorde.net/api/v2/generate/async', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': apiKey,
+      },
+      body: JSON.stringify({
+        prompt: prompt.trim(),
+        params: {
+          width: 512,
+          height: 512,
+          steps: 20,
+          n: 1,
+        },
+        models: ['stable_diffusion'],
+        nsfw: false,
+        trusted_workers: false,
+        censor_nsfw: false,
       })
-      
-      if (!imageResponse.ok) {
-        return new Response(JSON.stringify({ 
-          error: `Pollinations.ai returned ${imageResponse.status}`,
-          details: 'The image generation service may be unavailable'
-        }), {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
-        })
-      }
-      
-      const contentType = imageResponse.headers.get('content-type') || 'image/jpeg'
-      
-      if (!contentType.startsWith('image/')) {
-        return new Response(JSON.stringify({ 
-          error: 'Pollinations.ai returned non-image content',
-          details: `Content-Type: ${contentType}`
-        }), {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
-        })
-      }
-      
-      // Convert image to base64 data URL (chunked to avoid stack overflow)
-      const imageBuffer = await imageResponse.arrayBuffer()
-      const bytes = new Uint8Array(imageBuffer)
-      let binary = ''
-      const chunkSize = 8192 // Process in chunks to avoid stack overflow
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        const chunk = bytes.slice(i, i + chunkSize)
-        // Convert Uint8Array chunk to array for apply()
-        const chunkArray = Array.from(chunk)
-        binary += String.fromCharCode.apply(null, chunkArray)
-      }
-      const base64 = btoa(binary)
-      const dataUrl = `data:${contentType};base64,${base64}`
-      
+    })
+
+    if (!submitResponse.ok) {
+      const errorText = await submitResponse.text()
       return new Response(JSON.stringify({ 
-        imageUrl: dataUrl,
-        provider: 'pollinations'
+        error: `AI Horde submission failed: ${submitResponse.status}`,
+        details: errorText
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+
+    const submitData = await submitResponse.json()
+    const requestId = submitData.id
+
+    if (!requestId) {
+      return new Response(JSON.stringify({ 
+        error: 'No request ID returned from AI Horde',
+        details: JSON.stringify(submitData)
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+
+    // Return request ID immediately - frontend will poll for status
+    return new Response(JSON.stringify({ 
+      requestId: requestId,
+      status: 'submitted',
+      provider: 'aihorde',
+      message: 'Request submitted. Polling for result...'
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    })
+
+  } catch (error) {
+    return new Response(JSON.stringify({ 
+      error: error.message || 'Unknown error occurred',
+      type: error.name || 'Error'
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    })
+  }
+}
+
+async function checkStatus(requestId) {
+  try {
+    const apiKey = "0000000000" // Anonymous API key
+    
+    // Check status
+    const statusResponse = await fetch(`https://stablehorde.net/api/v2/generate/check/${requestId}`, {
+      headers: {
+        'apikey': apiKey,
+      }
+    })
+
+    if (!statusResponse.ok) {
+      return new Response(JSON.stringify({ 
+        error: `Failed to check status: ${statusResponse.status}`,
+        status: 'error'
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+
+    const statusData = await statusResponse.json()
+    
+    // Check if request failed
+    if (statusData.faulted) {
+      return new Response(JSON.stringify({ 
+        error: 'Image generation failed on AI Horde',
+        details: statusData.faulted,
+        status: 'failed'
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+    
+    // If not done yet, return processing status
+    if (!statusData.done) {
+      const queuePosition = statusData.queue_position || 0
+      const waitTime = statusData.wait_time || 0
+      return new Response(JSON.stringify({ 
+        status: 'processing',
+        queuePosition: queuePosition,
+        waitTime: waitTime,
+        done: false
       }), {
         headers: {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
         },
       })
-      
-    } catch (fetchError) {
+    }
+    
+    // Done! Get the generated image
+    const resultResponse = await fetch(`https://stablehorde.net/api/v2/generate/status/${requestId}`, {
+      headers: {
+        'apikey': apiKey,
+      }
+    })
+
+    if (!resultResponse.ok) {
       return new Response(JSON.stringify({ 
-        error: 'Failed to fetch image from Pollinations.ai',
-        details: fetchError.message
+        error: 'Failed to get generation result',
+        details: `Status: ${resultResponse.status}`,
+        status: 'error'
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+
+    const resultData = await resultResponse.json()
+    
+    if (resultData.generations && resultData.generations.length > 0 && resultData.generations[0].img) {
+      // Convert base64 image to data URL
+      const base64Image = resultData.generations[0].img
+      const dataUrl = `data:image/png;base64,${base64Image}`
+      
+      return new Response(JSON.stringify({ 
+        imageUrl: dataUrl,
+        provider: 'aihorde',
+        status: 'completed'
+      }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    } else {
+      return new Response(JSON.stringify({ 
+        error: 'No image in generation result',
+        details: JSON.stringify(resultData),
+        status: 'error'
       }), {
         status: 200,
         headers: {
@@ -153,7 +280,8 @@ async function handleRequest(request) {
   } catch (error) {
     return new Response(JSON.stringify({ 
       error: error.message || 'Unknown error occurred',
-      type: error.name || 'Error'
+      type: error.name || 'Error',
+      status: 'error'
     }), {
       status: 200,
       headers: {
