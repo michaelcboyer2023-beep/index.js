@@ -1,18 +1,19 @@
-// Cloudflare Worker - Cloudflare Workers AI Image Generation
-// Free, high-quality image generation using Cloudflare's own AI infrastructure
-// Uses Stable Diffusion XL model
+// Cloudflare Worker - AI Horde (Stable Horde) Text-to-Image Generation
+// Free, anonymous access with API key "0000000000"
+// Hybrid approach: POST submits request, GET checks status (avoids timeout)
 // ES Modules format (required for Cloudflare Workers)
-// Version: 2025-01-11 - Initial Cloudflare Workers AI integration
-
-import { Ai } from '@cloudflare/ai'
+// Version: 2025-01-11 - Fixed sampler_name to k_dpmpp_2m, added FLUX models
+// Version: 2025-01-11 v2 - Reduced to 768x768 and 30 steps for free tier (no kudos required)
+// Version: 2025-01-11 v3 - Prioritize free tier models (SDXL, SD 2.1, SD) to avoid kudos requirement
+// Version: 2025-01-11 v4 - Reduced to 512x512 and 25 steps to guarantee free tier (under 793x793 limit)
+// Version: 2025-01-11 v5 - Reduced to 20 steps (under 576x576 limit, 20 steps for extra safety)
 
 export default {
   async fetch(request, env, ctx) {
-    return handleRequest(request, env).catch(error => {
+    return handleRequest(request).catch(error => {
       return new Response(JSON.stringify({ 
         error: 'Worker error: ' + (error.message || 'Unknown error'),
-        type: error.name || 'Error',
-        details: error.stack || 'No stack trace'
+        type: error.name || 'Error'
       }), {
         status: 200,
         headers: {
@@ -24,22 +25,30 @@ export default {
   }
 }
 
-async function handleRequest(request, env) {
+async function handleRequest(request) {
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Max-Age': '86400',
       },
     })
   }
 
-  // POST request: Generate image via Cloudflare Workers AI
+  const url = new URL(request.url)
+  const requestId = url.searchParams.get('requestId')
+  
+  // GET request: Check status of existing request
+  if (request.method === 'GET' && requestId) {
+    return await checkStatus(requestId)
+  }
+  
+  // POST request: Submit new generation request
   if (request.method === 'POST') {
-    return await generateImage(request, env)
+    return await submitRequest(request)
   }
 
   return new Response(JSON.stringify({ error: 'Method not allowed' }), { 
@@ -51,23 +60,8 @@ async function handleRequest(request, env) {
   })
 }
 
-async function generateImage(request, env) {
+async function submitRequest(request) {
   try {
-    // Check if AI binding is available
-    if (!env.AI) {
-      return new Response(JSON.stringify({ 
-        error: 'AI binding not configured. Please bind the AI service in your Worker settings.',
-        details: 'Go to Workers & Pages > Your Worker > Settings > Variables and Environment Variables > Add binding > Select "AI"',
-        help: 'The AI binding must be added in the Worker settings for this to work.'
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-
     let body
     try {
       body = await request.json()
@@ -96,46 +90,79 @@ async function generateImage(request, env) {
       })
     }
 
-    // Use Cloudflare AI (already imported at top)
-    const ai = new Ai(env.AI)
+    // AI Horde API - Anonymous access with API key "0000000000"
+    const apiKey = "0000000000" // Anonymous API key
+    
+    // Submit generation request
+    const submitResponse = await fetch('https://stablehorde.net/api/v2/generate/async', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': apiKey,
+      },
+      body: JSON.stringify({
+        prompt: prompt.trim(),
+        params: {
+          width: 512, // Free tier: under 576x576 limit (512x512 should work)
+          height: 512,
+          steps: 20, // Free tier: well under 50 steps limit (20 guaranteed free)
+          n: 1,
+          cfg_scale: 8.0, // Optimal CFG for quality (7-8 range)
+          sampler_name: 'k_dpmpp_2m', // Best quality sampler (valid name: k_dpmpp_2m not dpmpp_2m_karras)
+        },
+        models: [
+          'stable_diffusion_xl',  // SDXL (high quality, free tier)
+          'stable_diffusion_2.1', // SD 2.1 (free tier)
+          'stable_diffusion',     // SD base (free tier)
+          'flux.1-schnell',       // FLUX.1 Schnell (fast, may be free)
+          'flux.1-dev',           // FLUX.1 Dev (may require kudos)
+          'flux.1-pro',           // FLUX.1 Pro (may require kudos)
+          'flux1-1-pro',          // FLUX.1.1 Pro (may require kudos)
+          'flux2-pro',            // FLUX.2 Pro (may require kudos)
+          'flux1-1-pro-ultra'     // FLUX.1.1 Pro Ultra (may require kudos)
+        ], // Prioritize free tier models first, premium models as fallback
+        nsfw: false,
+        trusted_workers: false,
+        censor_nsfw: false,
+      })
+    })
 
-    // Generate image using Stable Diffusion XL (high quality)
-    const inputs = {
-      prompt: prompt.trim(),
-      num_steps: 20, // Good balance of quality and speed (20-50 range)
-      guidance_scale: 7.5, // Standard guidance scale (7-8 range)
-      strength: 0.8, // Image strength
+    if (!submitResponse.ok) {
+      const errorText = await submitResponse.text()
+      return new Response(JSON.stringify({ 
+        error: `AI Horde submission failed: ${submitResponse.status}`,
+        details: errorText
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
     }
 
-    // Use Stable Diffusion XL for best quality
-    // Alternative models available:
-    // - @cf/stabilityai/stable-diffusion-xl-base-1.0 (best quality)
-    // - @cf/bytedance/stable-diffusion-xl-lightning (faster)
-    // - @cf/runwayml/stable-diffusion-v1-5-img2img (for image-to-image)
-    const response = await ai.run(
-      '@cf/stabilityai/stable-diffusion-xl-base-1.0',
-      inputs
-    )
+    const submitData = await submitResponse.json()
+    const requestId = submitData.id
 
-    // Convert the image response to base64 data URL
-    const imageBuffer = await response.arrayBuffer()
-    const bytes = new Uint8Array(imageBuffer)
-    let binary = ''
-    const chunkSize = 8192 // Process in chunks to avoid stack overflow
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.slice(i, i + chunkSize)
-      const chunkArray = Array.from(chunk)
-      binary += String.fromCharCode.apply(null, chunkArray)
+    if (!requestId) {
+      return new Response(JSON.stringify({ 
+        error: 'No request ID returned from AI Horde',
+        details: JSON.stringify(submitData)
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
     }
-    const base64 = btoa(binary)
-    const dataUrl = `data:image/png;base64,${base64}`
 
-    // Success - return image URL
+    // Return request ID immediately - frontend will poll for status
     return new Response(JSON.stringify({ 
-      imageUrl: dataUrl,
-      provider: 'cloudflare-ai',
-      status: 'completed',
-      version: '2025-01-11-cloudflare-ai'
+      requestId: requestId,
+      status: 'submitted',
+      provider: 'aihorde',
+      message: 'Request submitted. Polling for result...'
     }), {
       headers: {
         'Content-Type': 'application/json',
@@ -144,22 +171,182 @@ async function generateImage(request, env) {
     })
 
   } catch (error) {
-    // Provide detailed error information for debugging
-    const errorDetails = {
-      message: error.message || 'Unknown error occurred',
-      type: error.name || 'Error',
-      stack: error.stack || 'No stack trace',
-      // Check common issues
-      hasAI: !!env.AI,
-      errorString: String(error)
+    return new Response(JSON.stringify({ 
+      error: error.message || 'Unknown error occurred',
+      type: error.name || 'Error'
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    })
+  }
+}
+
+async function checkStatus(requestId) {
+  try {
+    const apiKey = "0000000000" // Anonymous API key
+    
+    // Check status
+    const statusResponse = await fetch(`https://stablehorde.net/api/v2/generate/check/${requestId}`, {
+      headers: {
+        'apikey': apiKey,
+      }
+    })
+
+    if (!statusResponse.ok) {
+      return new Response(JSON.stringify({ 
+        error: `Failed to check status: ${statusResponse.status}`,
+        status: 'error'
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+
+    const statusData = await statusResponse.json()
+    
+    // Check if request failed
+    if (statusData.faulted) {
+      return new Response(JSON.stringify({ 
+        error: 'Image generation failed on AI Horde',
+        details: statusData.faulted,
+        status: 'failed'
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
     }
     
+    // If not done yet, return processing status
+    if (!statusData.done) {
+      const queuePosition = statusData.queue_position || 0
+      const waitTime = statusData.wait_time || 0
+      return new Response(JSON.stringify({ 
+        status: 'processing',
+        queuePosition: queuePosition,
+        waitTime: waitTime,
+        done: false
+      }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+    
+    // Done! Get the generated image
+    const resultResponse = await fetch(`https://stablehorde.net/api/v2/generate/status/${requestId}`, {
+      headers: {
+        'apikey': apiKey,
+      }
+    })
+
+    if (!resultResponse.ok) {
+      return new Response(JSON.stringify({ 
+        error: 'Failed to get generation result',
+        details: `Status: ${resultResponse.status}`,
+        status: 'error'
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+
+    const resultData = await resultResponse.json()
+    
+    if (resultData.generations && resultData.generations.length > 0 && resultData.generations[0].img) {
+      const imageData = resultData.generations[0].img
+      
+      // Check if it's a URL or base64 string
+      let dataUrl
+      if (imageData.startsWith('http://') || imageData.startsWith('https://')) {
+        // It's a URL - fetch it and convert to base64
+        try {
+          const imageResponse = await fetch(imageData)
+          if (!imageResponse.ok) {
+            return new Response(JSON.stringify({ 
+              error: 'Failed to fetch generated image',
+              details: `HTTP ${imageResponse.status}`,
+              status: 'error'
+            }), {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+              },
+            })
+          }
+          
+          const contentType = imageResponse.headers.get('content-type') || 'image/png'
+          const imageBuffer = await imageResponse.arrayBuffer()
+          const bytes = new Uint8Array(imageBuffer)
+          let binary = ''
+          const chunkSize = 8192 // Process in chunks to avoid stack overflow
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.slice(i, i + chunkSize)
+            const chunkArray = Array.from(chunk)
+            binary += String.fromCharCode.apply(null, chunkArray)
+          }
+          const base64 = btoa(binary)
+          dataUrl = `data:${contentType};base64,${base64}`
+        } catch (fetchError) {
+          return new Response(JSON.stringify({ 
+            error: 'Failed to fetch and convert image',
+            details: fetchError.message,
+            status: 'error'
+          }), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          })
+        }
+      } else {
+        // It's already base64 - use it directly
+        dataUrl = `data:image/png;base64,${imageData}`
+      }
+      
+      return new Response(JSON.stringify({ 
+        imageUrl: dataUrl,
+        provider: 'aihorde',
+        status: 'completed'
+      }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    } else {
+      return new Response(JSON.stringify({ 
+        error: 'No image in generation result',
+        details: JSON.stringify(resultData),
+        status: 'error'
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+
+  } catch (error) {
     return new Response(JSON.stringify({ 
-      error: errorDetails.message,
-      type: errorDetails.type,
-      status: 'error',
-      details: errorDetails,
-      help: !env.AI ? 'AI binding not configured. Add AI binding in Worker Settings > Variables > Add binding > Select "AI"' : 'Check error details above'
+      error: error.message || 'Unknown error occurred',
+      type: error.name || 'Error',
+      status: 'error'
     }), {
       status: 200,
       headers: {
