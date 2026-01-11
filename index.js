@@ -103,7 +103,7 @@ async function submitRequest(request) {
           steps: 40, // High quality steps (40-50 range for best results)
           n: 1,
           cfg_scale: 8.0, // Optimal CFG for quality (7-8 range)
-          sampler_name: 'dpmpp_2m_karras', // Best quality sampler
+          sampler_name: 'k_dpmpp_2m', // Best quality sampler (valid name)
         },
         models: [
           'flux1-1-pro-ultra',   // FLUX.1.1 Pro Ultra (4MP, highest quality)
