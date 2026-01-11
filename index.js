@@ -6,6 +6,7 @@
 // Version: 2025-01-11 v2 - Try multiple API endpoints for compatibility
 // Version: 2025-01-11 v3 - Prioritize subnp.com endpoints
 // Version: 2025-01-11 v4 - Use official base URL from SubNP docs (t2i.mcpcore.xyz)
+// Version: 2025-01-11 v5 - Add browser-like headers for API compatibility
 
 export default {
   async fetch(request, env, ctx) {
@@ -100,6 +101,10 @@ async function generateImage(request) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (compatible; CloudflareWorker/1.0)',
+            'Accept': 'text/event-stream',
+            'Origin': 'https://subnp.com',
+            'Referer': 'https://subnp.com/'
           },
           body: JSON.stringify({ prompt: prompt.trim(), model })
         })
