@@ -4,6 +4,7 @@
 // ES Modules format (required for Cloudflare Workers)
 // Version: 2025-01-11 - Fixed sampler_name to k_dpmpp_2m, added FLUX models
 // Version: 2025-01-11 v2 - Reduced to 768x768 and 30 steps for free tier (no kudos required)
+// Version: 2025-01-11 v3 - Prioritize free tier models (SDXL, SD 2.1, SD) to avoid kudos requirement
 
 export default {
   async fetch(request, env, ctx) {
@@ -108,16 +109,16 @@ async function submitRequest(request) {
           sampler_name: 'k_dpmpp_2m', // Best quality sampler (valid name: k_dpmpp_2m not dpmpp_2m_karras)
         },
         models: [
-          'flux1-1-pro-ultra',   // FLUX.1.1 Pro Ultra (4MP, highest quality)
-          'flux2-pro',            // FLUX.2 Pro (state-of-the-art)
-          'flux1-1-pro',          // FLUX.1.1 Pro (high quality)
-          'flux.1-pro',           // FLUX.1 Pro (try alternate naming)
-          'flux.1-dev',           // FLUX.1 Dev (high quality)
-          'stable_diffusion_xl',  // SDXL (high quality)
-          'flux.1-schnell',       // FLUX.1 Schnell (fast fallback)
-          'stable_diffusion_2.1', // SD 2.1 fallback
-          'stable_diffusion'      // Final fallback
-        ], // Try best models first, falls back if unavailable
+          'stable_diffusion_xl',  // SDXL (high quality, free tier)
+          'stable_diffusion_2.1', // SD 2.1 (free tier)
+          'stable_diffusion',     // SD base (free tier)
+          'flux.1-schnell',       // FLUX.1 Schnell (fast, may be free)
+          'flux.1-dev',           // FLUX.1 Dev (may require kudos)
+          'flux.1-pro',           // FLUX.1 Pro (may require kudos)
+          'flux1-1-pro',          // FLUX.1.1 Pro (may require kudos)
+          'flux2-pro',            // FLUX.2 Pro (may require kudos)
+          'flux1-1-pro-ultra'     // FLUX.1.1 Pro Ultra (may require kudos)
+        ], // Prioritize free tier models first, premium models as fallback
         nsfw: false,
         trusted_workers: false,
         censor_nsfw: false,
@@ -353,4 +354,3 @@ async function checkStatus(requestId) {
     })
   }
 }
-
