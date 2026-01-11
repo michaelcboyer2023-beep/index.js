@@ -352,4 +352,3 @@ async function checkStatus(requestId) {
     })
   }
 }
-
