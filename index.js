@@ -1,19 +1,18 @@
-// Cloudflare Worker - SubNP AI Image Generation
-// Free, high-quality AI image generation via SubNP API
-// Uses SSE (Server-Sent Events) streaming
+// Cloudflare Worker - Cloudflare Workers AI Image Generation
+// Free, high-quality image generation using Cloudflare's own AI infrastructure
+// Uses Stable Diffusion XL model
 // ES Modules format (required for Cloudflare Workers)
-// Version: 2025-01-11 - Initial SubNP integration for high-quality images
-// Version: 2025-01-11 v2 - Try multiple API endpoints for compatibility
-// Version: 2025-01-11 v3 - Prioritize subnp.com endpoints
-// Version: 2025-01-11 v4 - Use official base URL from SubNP docs (t2i.mcpcore.xyz)
-// Version: 2025-01-11 v5 - Add browser-like headers for API compatibility
+// Version: 2025-01-11 - Initial Cloudflare Workers AI integration
+
+import { Ai } from '@cloudflare/ai'
 
 export default {
   async fetch(request, env, ctx) {
-    return handleRequest(request).catch(error => {
+    return handleRequest(request, env).catch(error => {
       return new Response(JSON.stringify({ 
         error: 'Worker error: ' + (error.message || 'Unknown error'),
-        type: error.name || 'Error'
+        type: error.name || 'Error',
+        details: error.stack || 'No stack trace'
       }), {
         status: 200,
         headers: {
@@ -25,7 +24,7 @@ export default {
   }
 }
 
-async function handleRequest(request) {
+async function handleRequest(request, env) {
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
@@ -38,9 +37,9 @@ async function handleRequest(request) {
     })
   }
 
-  // POST request: Generate image via SubNP
+  // POST request: Generate image via Cloudflare Workers AI
   if (request.method === 'POST') {
-    return await generateImage(request)
+    return await generateImage(request, env)
   }
 
   return new Response(JSON.stringify({ error: 'Method not allowed' }), { 
@@ -52,8 +51,23 @@ async function handleRequest(request) {
   })
 }
 
-async function generateImage(request) {
+async function generateImage(request, env) {
   try {
+    // Check if AI binding is available
+    if (!env.AI) {
+      return new Response(JSON.stringify({ 
+        error: 'AI binding not configured. Please bind the AI service in your Worker settings.',
+        details: 'Go to Workers & Pages > Your Worker > Settings > Variables and Environment Variables > Add binding > Select "AI"',
+        help: 'The AI binding must be added in the Worker settings for this to work.'
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    }
+
     let body
     try {
       body = await request.json()
@@ -70,7 +84,7 @@ async function generateImage(request) {
       })
     }
 
-    const { prompt, model = 'turbo' } = body
+    const { prompt } = body
 
     if (!prompt) {
       return new Response(JSON.stringify({ error: 'Prompt is required' }), {
@@ -82,143 +96,46 @@ async function generateImage(request) {
       })
     }
 
-    // SubNP API - Free tier
-    // Base URL: https://t2i.mcpcore.xyz (per official docs)
-    // Endpoint: /api/free/generate
-    // Also try subnp.com as it may proxy to t2i.mcpcore.xyz
-    const apiUrls = [
-      'https://t2i.mcpcore.xyz/api/free/generate', // Official base URL from docs
-      'https://subnp.com/api/free/generate', // May work as proxy/alias
-    ]
-    
-    let apiResponse = null
-    let lastError = null
-    
-    // Try each endpoint until one works
-    for (const apiUrl of apiUrls) {
-      try {
-        apiResponse = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (compatible; CloudflareWorker/1.0)',
-            'Accept': 'text/event-stream',
-            'Origin': 'https://subnp.com',
-            'Referer': 'https://subnp.com/'
-          },
-          body: JSON.stringify({ prompt: prompt.trim(), model })
-        })
-        
-        if (apiResponse.ok) {
-          break // Success, use this endpoint
-        } else if (apiResponse.status !== 404) {
-          // If it's not 404, this might be the right endpoint but with an error
-          break
-        }
-        // If 404, try next endpoint
-        lastError = `404 from ${apiUrl}`
-      } catch (fetchError) {
-        lastError = fetchError.message
-        continue // Try next endpoint
-      }
-    }
-    
-    if (!apiResponse || !apiResponse.ok) {
-      const errorText = apiResponse ? await apiResponse.text() : (lastError || 'All endpoints failed')
-      // Try to get more info about which endpoint failed
-      const errorDetails = {
-        status: apiResponse?.status || 'Connection failed',
-        errorText: errorText,
-        triedEndpoints: apiUrls,
-        suggestion: 'SubNP may require an API key. Visit https://www.subnp.com/free-api to get one.'
-      }
-      return new Response(JSON.stringify({ 
-        error: `SubNP API error: ${errorDetails.status}`,
-        details: errorText,
-        debug: errorDetails
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
+    // Use Cloudflare AI (already imported at top)
+    const ai = new Ai(env.AI)
+
+    // Generate image using Stable Diffusion XL (high quality)
+    const inputs = {
+      prompt: prompt.trim(),
+      num_steps: 20, // Good balance of quality and speed (20-50 range)
+      guidance_scale: 7.5, // Standard guidance scale (7-8 range)
+      strength: 0.8, // Image strength
     }
 
-    // Handle SSE stream from SubNP
-    const reader = apiResponse.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let imageUrl = null
-    let errorMessage = null
-    let status = 'processing'
+    // Use Stable Diffusion XL for best quality
+    // Alternative models available:
+    // - @cf/stabilityai/stable-diffusion-xl-base-1.0 (best quality)
+    // - @cf/bytedance/stable-diffusion-xl-lightning (faster)
+    // - @cf/runwayml/stable-diffusion-v1-5-img2img (for image-to-image)
+    const response = await ai.run(
+      '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+      inputs
+    )
 
-    // Read the SSE stream
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || '' // Keep incomplete line in buffer
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6)) // Remove 'data: ' prefix
-            
-            if (data.status === 'complete' && data.imageUrl) {
-              imageUrl = data.imageUrl
-              status = 'completed'
-            } else if (data.status === 'error') {
-              errorMessage = data.message || 'Unknown error from SubNP'
-              status = 'error'
-            } else if (data.status === 'processing') {
-              status = 'processing'
-              // Could forward progress updates if needed
-            }
-          } catch (e) {
-            // Skip invalid JSON lines
-            console.error('Failed to parse SSE data:', e, line)
-          }
-        }
-      }
+    // Convert the image response to base64 data URL
+    const imageBuffer = await response.arrayBuffer()
+    const bytes = new Uint8Array(imageBuffer)
+    let binary = ''
+    const chunkSize = 8192 // Process in chunks to avoid stack overflow
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.slice(i, i + chunkSize)
+      const chunkArray = Array.from(chunk)
+      binary += String.fromCharCode.apply(null, chunkArray)
     }
-
-    // Check for errors
-    if (errorMessage) {
-      return new Response(JSON.stringify({ 
-        error: errorMessage,
-        status: 'error'
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
-
-    // Check if we got an image URL
-    if (!imageUrl) {
-      return new Response(JSON.stringify({ 
-        error: 'No image URL received from SubNP',
-        status: 'error'
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      })
-    }
+    const base64 = btoa(binary)
+    const dataUrl = `data:image/png;base64,${base64}`
 
     // Success - return image URL
     return new Response(JSON.stringify({ 
-      imageUrl: imageUrl,
-      provider: 'subnp',
+      imageUrl: dataUrl,
+      provider: 'cloudflare-ai',
       status: 'completed',
-      version: '2025-01-11-subnp' // Version identifier to verify deployment
+      version: '2025-01-11-cloudflare-ai'
     }), {
       headers: {
         'Content-Type': 'application/json',
@@ -227,10 +144,22 @@ async function generateImage(request) {
     })
 
   } catch (error) {
-    return new Response(JSON.stringify({ 
-      error: error.message || 'Unknown error occurred',
+    // Provide detailed error information for debugging
+    const errorDetails = {
+      message: error.message || 'Unknown error occurred',
       type: error.name || 'Error',
-      status: 'error'
+      stack: error.stack || 'No stack trace',
+      // Check common issues
+      hasAI: !!env.AI,
+      errorString: String(error)
+    }
+    
+    return new Response(JSON.stringify({ 
+      error: errorDetails.message,
+      type: errorDetails.type,
+      status: 'error',
+      details: errorDetails,
+      help: !env.AI ? 'AI binding not configured. Add AI binding in Worker Settings > Variables > Add binding > Select "AI"' : 'Check error details above'
     }), {
       status: 200,
       headers: {
