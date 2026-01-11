@@ -3,6 +3,7 @@
 // Hybrid approach: POST submits request, GET checks status (avoids timeout)
 // ES Modules format (required for Cloudflare Workers)
 // Version: 2025-01-11 - Fixed sampler_name to k_dpmpp_2m, added FLUX models
+// Version: 2025-01-11 v2 - Reduced to 768x768 and 30 steps for free tier (no kudos required)
 
 export default {
   async fetch(request, env, ctx) {
@@ -99,9 +100,9 @@ async function submitRequest(request) {
       body: JSON.stringify({
         prompt: prompt.trim(),
         params: {
-          width: 1024, // Maximum quality resolution
-          height: 1024,
-          steps: 40, // High quality steps (40-50 range for best results)
+          width: 768, // Free tier limit: under 926x926 (768x768 works without kudos)
+          height: 768,
+          steps: 30, // Free tier limit: under 50 steps (30 works without kudos)
           n: 1,
           cfg_scale: 8.0, // Optimal CFG for quality (7-8 range)
           sampler_name: 'k_dpmpp_2m', // Best quality sampler (valid name: k_dpmpp_2m not dpmpp_2m_karras)
@@ -352,4 +353,3 @@ async function checkStatus(requestId) {
     })
   }
 }
-
