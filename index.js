@@ -113,9 +113,18 @@ async function handleRequest(request) {
         })
       }
       
-      // Convert image to base64 data URL
+      // Convert image to base64 data URL (chunked to avoid stack overflow)
       const imageBuffer = await imageResponse.arrayBuffer()
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)))
+      const bytes = new Uint8Array(imageBuffer)
+      let binary = ''
+      const chunkSize = 8192 // Process in chunks to avoid stack overflow
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.slice(i, i + chunkSize)
+        // Convert Uint8Array chunk to array for apply()
+        const chunkArray = Array.from(chunk)
+        binary += String.fromCharCode.apply(null, chunkArray)
+      }
+      const base64 = btoa(binary)
       const dataUrl = `data:${contentType};base64,${base64}`
       
       return new Response(JSON.stringify({ 
