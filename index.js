@@ -41,18 +41,25 @@ async function handleRequest(request) {
     }
 
     // Forward request to SubNP API
+    // Note: If this returns 404, the API endpoint may have changed
     const apiResponse = await fetch('https://t2i.mcpcore.xyz/api/free/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
       },
       body: JSON.stringify({ prompt, model }),
     })
 
     if (!apiResponse.ok) {
       const errorText = await apiResponse.text()
-      return new Response(JSON.stringify({ error: `API error: ${apiResponse.status}`, details: errorText }), {
-        status: apiResponse.status,
+      // Provide more helpful error message
+      let errorMsg = `SubNP API error: ${apiResponse.status}`
+      if (apiResponse.status === 404) {
+        errorMsg = 'SubNP API endpoint not found. The API may have changed or is temporarily unavailable.'
+      }
+      return new Response(JSON.stringify({ error: errorMsg, details: errorText, status: apiResponse.status }), {
+        status: 200, // Return 200 so frontend can read the error
         headers: {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
@@ -129,3 +136,4 @@ async function handleRequest(request) {
     })
   }
 }
+ 
