@@ -68,11 +68,10 @@ async function handleRequest(request) {
       })
     }
 
-    // Pollinations.ai generates images via URL: https://pollinations.ai/p/{encoded-prompt}
-    // We construct the URL and return it
-    // The image URL works directly in <img> tags (CORS allowed for images)
+    // Pollinations.ai generates images via direct image URL: https://image.pollinations.ai/prompt/{encoded-prompt}
+    // This endpoint returns actual image files (JPEG), not HTML pages
     const encodedPrompt = encodeURIComponent(prompt.trim())
-    const imageUrl = `https://pollinations.ai/p/${encodedPrompt}?width=512&height=512&seed=${Date.now()}`
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&nologo=true&seed=${Date.now()}`
 
     return new Response(JSON.stringify({ imageUrl }), {
       headers: {
