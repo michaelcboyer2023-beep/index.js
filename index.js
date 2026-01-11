@@ -2,6 +2,7 @@
 // Free, anonymous access with API key "0000000000"
 // Hybrid approach: POST submits request, GET checks status (avoids timeout)
 // ES Modules format (required for Cloudflare Workers)
+// Version: 2025-01-11 - Fixed sampler_name to k_dpmpp_2m, added FLUX models
 
 export default {
   async fetch(request, env, ctx) {
@@ -103,7 +104,7 @@ async function submitRequest(request) {
           steps: 40, // High quality steps (40-50 range for best results)
           n: 1,
           cfg_scale: 8.0, // Optimal CFG for quality (7-8 range)
-          sampler_name: 'k_dpmpp_2m', // Best quality sampler (valid name)
+          sampler_name: 'k_dpmpp_2m', // Best quality sampler (valid name: k_dpmpp_2m not dpmpp_2m_karras)
         },
         models: [
           'flux1-1-pro-ultra',   // FLUX.1.1 Pro Ultra (4MP, highest quality)
@@ -351,4 +352,3 @@ async function checkStatus(requestId) {
     })
   }
 }
-
